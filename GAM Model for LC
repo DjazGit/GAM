@@ -1,0 +1,162 @@
+############ The packages you need ############
+library(stringi)
+library(stringr) 
+library(car)
+library(caret)#prediction
+library(ggplot2) #ploting
+library(mgcv) # GAMs
+library(dplyr)
+library(lubridate) #DATE
+library(fitdistrplus) #DISTRIBUTION
+library(tidyverse) 
+library(modelr)
+library(gratia) #plots
+library(gamclass)# for the cross validation
+library(aplpack) # BAGPLOT
+library(tidyr)
+library(purrr)
+library(tidyselect)
+library(nlme)############ for gamm
+library(tidymodels)######### for train and test set 
+library(MASS)
+library(zoo) #### for mean avereage
+library(tsibble)
+library(readxl)
+library(forecast)
+library(tseries)
+library(stats)
+library(gratia)
+########## import my data set #########
+Total_LC_CLIMAT_GH <- read_excel("C:\\Users\\HONOR-ECC\\Documents\\Leishmaniasis Study\\DATA.FRAMES\\XLSX\\GH\\Total_LC_CLIMAT_GH.xlsx", 
+                                 col_types = c("date", "numeric", "numeric", 
+                                               "numeric", "numeric", "numeric", 
+                                               "numeric","numeric","numeric"))
+
+############ Fix the date variable #############
+
+Date <- ydm(all_data_for_ALG$date)
+fix(Date)
+DAAv <- as.vector(Date)
+year<- as.numeric(format(Date, format = '%y'))
+month <- as.numeric(format(Date, format = "%m"))
+
+#Normalise the data 
+#process <- preProcess(as.data.frame(Total_LC_CLIMAT_GH), method=c("range"))
+#norm_scale <- predict(process, as.data.frame(Total_LC_CLIMAT_GH))
+#get the NDVI data
+#NDVI <- read_excel("C:\\Users\\HONOR-ECC\\Documents\\Leishmaniasis Study\\DATA.FRAMES\\NDVI_GHARDAIA.xlsx", col_types = c("numeric", "numeric"))
+#NDVI =NDVI[,-1]
+
+#bind the NDVI because is it already normalized and the date and time ......
+#Total_LC_CLIMAT_GH = cbind(norm_scale, NDVI)
+Total_LC_CLIMAT_GH = cbind(Total_LC_CLIMAT_GH, NDVI)
+
+#create the lagged variables 
+prc_lag6 <-6
+
+ndvi_lag4 <- 4
+PRC_Lag6= lag(Total_LC_CLIMAT_GH$PRC, prc_lag6)
+NDVI_Lag4 = lag(Total_LC_CLIMAT_GH$NDVI , ndvi_lag4)
+
+#bind all
+Total_LC_CLIMAT_GH = cbind( Total_LC_CLIMAT_GH, year, month, PRC_Lag6)
+view(Total_LC_CLIMAT_GH)
+Total_LC_CLIMAT_GH = na.omit(Total_LC_CLIMAT_GH)
+
+
+############ Run the Gam model ################
+# train and test sets :
+set.seed(1234567)
+CL_split <- initial_split(Total_LC_CLIMAT_GH, prop = 0.80)
+CL_train <- training(CL_split)
+CL_test <- testing(CL_split)
+
+#knots
+knots <- list(month= c(0.5 , 12.5))
+
+#without time variable
+GAM_01 <- gam(CL_Cases ~ s(HM, k=12, bs ="cc") +
+                    s(AT, k=12, bs ="cc") +
+                    s(WS, k=12, bs ="cc") + 
+                    s(NDVI,k=12, bs ="cc") +
+                    s(PRC_Lag6, bs ="cc"),
+                    knots = knots, select = TRUE,method = "REML",
+                    family = "nb",
+                    data = CL_train)
+
+#,select = TRUE
+# correlation in the Gam model
+par(mfrow = c(1, 2))
+
+acf(residuals(GAM_01))
+pacf(residuals(GAM_01))
+
+############### CHEKING THE MODEL #######################
+print.gam(GAM_01)
+AIC(GAM_01)
+BIC(GAM_01)
+gam.check(GAM_01)
+summary(GAM_01)
+appraise(GAM_01, point_col = "steelblue",point_alpha = 1 ,
+         line_col = "black")
+draw(GAM_01, scales = "free", shade = TRUE)
+
+
+
+
+
+
+#with time variable
+GAM_02 <- gam(CL_Cases ~ s(HM, k=12, bs ="cc") +
+                   s(AT, k=12, bs ="cc") +
+                   s(WS, k=12, bs = "cc") + 
+                   s(NDVI, k =12, bs = "cc") +
+                   s(PRC_Lag6,bs = "cc")+s(year,bs = "cc", k =21),
+                   knots = knots,method = "REML",family = "nb",
+                   data = CL_train)
+
+# correlation in the Gam model
+par(mfrow = c(1, 2))
+
+acf(residuals(GAM_02)) 
+pacf(residuals(GAM_02))
+
+
+############### CHEKING THE MODEL #######################
+print(GAM_02)
+AIC(GAM_02)
+BIC(GAM_02)
+gam.check(GAM_02)
+summary(GAM_02)
+appraise(GAM_02, point_col = "steelblue", point_alpha = 1,
+         line_col = "black") & theme_minimal()
+draw(GAM_02, scales = 'free', shade = "green")
+
+#######################
+summary(Gam_model) 
+sink("Gam_summury.txt")
+print(summary(Gam_modelit2))
+sink()
+
+# Make predictions on the test data
+predicted_values <- predict(GAM_01, newdata = CL_test, se.fit = TRUE,
+                            type = "response")
+CL_test = na.omit(CL_test)
+CL_test = cbind(CL_test, predicted_values)
+# Calculate RMSE
+RMSE(predicted_values$fit, CL_test$CL_Cases)
+cor(predicted_values$fit , CL_test$CL_Cases)
+
+
+
+
+plot_data <- data.frame(Date = CL_test$Date, CL_Cases = CL_test$CL_Cases, Predicted =  predicted_values$fit )
+
+
+# Plot the actual and predicted values over time
+ggplot(plot_data, aes(x = Date)) +
+  geom_smooth(aes(y = CL_Cases, color = "Actual")) +
+  geom_smooth(aes(y = Predicted, color = "Predicted")) +
+  scale_color_manual(name = "Values", values = c("Actual" = "blue", "Predicted" = "red")) +
+  labs(x = "Time", y = "CL_Cases") +
+  theme_bw()
