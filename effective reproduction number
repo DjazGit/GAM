@@ -1,0 +1,50 @@
+library(readr)
+library(devtools)
+library(estimateR)
+library(EstimateGroupNetwork)
+#########################telecharger les data set 
+
+####### 1 Alger 
+ALGER_data <- read_csv("C:/Users/------------your file path-----------ALGER_data_.csv")
+####### IQA_Predict
+IQA_Predict <- read_csv("C:/Users/------------your file path-----------/data_norm_AQI.csv")
+####### PM2.5_predict
+PM2.5_predict<- read_csv("C:/Users/------------your file path-----------/data_norm_PM2.5.csv")
+
+
+###################nombre de reproduction effectifs########################
+########## define the date ###########
+date_first_data_point <- as.Date("2020-04-19")
+toy_incidence_data <- as.numeric(ALGER_data$CC)
+
+shape_onset_to_report = 3.8
+scale_onset_to_report = 1.6
+onset_to_report <- list(name="gamma", 
+                        shape = shape_onset_to_report, 
+                        scale = scale_onset_to_report)
+
+shape_incubation = 3.2 
+scale_incubation = 1.3
+incubation <- list(name="gamma", shape = shape_incubation, scale = scale_incubation)
+
+mean_serial_interval = 4.8
+std_serial_interval = 2.3
+
+estimation_window = 3
+toy_incidence_data <- toy_incidence_data[!is.na(toy_incidence_data)]
+toy_estimates <- estimate_Re_from_noisy_delayed_incidence(toy_incidence_data,
+                  smoothing_method = "LOESS",
+                  deconvolution_method = "Richardson-Lucy delay distribution",
+                  estimation_method = "EpiEstim sliding window",
+                  delay = list(incubation, onset_to_report),
+                  estimation_window = estimation_window,
+                  mean_serial_interval = mean_serial_interval,
+                  std_serial_interval  = std_serial_interval,
+                  output_Re_only = FALSE,
+                  ref_date = date_first_data_point,
+                  time_step = "day")
+tail(toy_estimates)
+
+View(toy_estimates)
+
+toy_estimates$Re_estimate
